@@ -4,8 +4,10 @@
  */
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { countDrawing, type CountOptions, type VisionPass } from '../engine.ts';
-import type { TakeoffResult } from '../types.ts';
+import { countDrawing, mergeLegends, structuralBoxes, type CountOptions, type VisionPass } from '../engine.ts';
+import { extractText } from '../pdf/text.ts';
+import type { Legend, TakeoffResult } from '../types.ts';
+import { findLegends } from '../vector/legend.ts';
 import { isGroundTruth, scoreSet, summarise, type BenchReport, type SetScore } from './scoring.ts';
 
 export interface BenchOptions {
@@ -65,6 +67,17 @@ export async function runBench(benchDir: string, opts: BenchOptions = {}): Promi
       scores.push(errorScore(set, 'ground truth must be { items: { "<tag>": <count> } }', started));
       continue;
     }
+    // A sibling mapping.json (bill line -> legend tags/descriptions) may sit next to the ground truth,
+    // so the bill's counts stay untouched while the symbol identification is added separately.
+    try {
+      const extra = JSON.parse(await readFile(join(set.dir, 'mapping.json'), 'utf8')) as unknown;
+      if (typeof extra === 'object' && extra !== null && !Array.isArray(extra)) {
+        truthRaw.mapping = { ...(truthRaw.mapping ?? {}), ...(extra as Record<string, string[]>) };
+        log(`${set.name}: mapping.json adds ${Object.keys(extra).length} line(s)`);
+      }
+    } catch {
+      // no mapping file
+    }
     if (set.drawings.length === 0) {
       scores.push(errorScore(set, 'no drawings', started));
       continue;
@@ -72,9 +85,16 @@ export async function runBench(benchDir: string, opts: BenchOptions = {}): Promi
     const vision = opts.makeVision ? await opts.makeVision() : undefined;
     const results: TakeoffResult[] = [];
     try {
+      // A set's legend is often a separate sheet or file: read every drawing's
+      // vector legend first and share the merged list with drawings lacking one.
+      const shared = await sharedLegend(set.drawings);
+      if (shared) log(`${set.name}: shared legend with ${shared.legend.items.length} item(s) from ${shared.files.join(', ')}`);
       for (const pdf of set.drawings) {
+        const own = shared?.perFile.get(pdf) ?? false;
+        const legendOpt: CountOptions['legend'] = own || !shared ? (opts.countOptions?.legend ?? 'auto') : { legend: shared.legend };
         const result = await countDrawing(pdf, {
           ...(opts.countOptions ?? {}),
+          legend: legendOpt,
           vision,
           log: (m) => {
             log(`${set.name}/${result_name(pdf)}: ${m}`);
@@ -111,6 +131,33 @@ export async function runBench(benchDir: string, opts: BenchOptions = {}): Promi
     sets: scores,
     summary: summarise(scores),
   };
+}
+
+interface SharedLegend {
+  legend: Legend;
+  files: string[];
+  perFile: Map<string, boolean>;
+}
+
+async function sharedLegend(drawings: readonly string[]): Promise<SharedLegend | null> {
+  const legends: Legend[] = [];
+  const files: string[] = [];
+  const perFile = new Map<string, boolean>();
+  for (const pdf of drawings) {
+    let found = false;
+    for (const page of await extractText(pdf)) {
+      const ls = findLegends(page, structuralBoxes(page));
+      if (ls.length > 0) {
+        legends.push(...ls);
+        found = true;
+      }
+    }
+    perFile.set(pdf, found);
+    if (found) files.push(result_name(pdf));
+  }
+  if (legends.length === 0) return null;
+  const items = mergeLegends(legends);
+  return { legend: { page: 0, box: { x: 0, y: 0, w: 0, h: 0 }, items, source: 'vector' }, files, perFile };
 }
 
 function result_name(pdf: string): string {

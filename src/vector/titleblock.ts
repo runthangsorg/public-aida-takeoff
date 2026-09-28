@@ -72,8 +72,8 @@ export function readTitleBlock(pageText: PageText): TitleBlock {
   let box: Box | null = null;
   const labels = unionAll(labelBoxes);
   if (labels) {
-    // Grow to the right edge of the page and pad; title blocks are boxes of labels and values.
-    const padded = expand(labels, labels.h * 0.3 + 12);
+    // Grow to the right edge of the page and pad a little; title blocks are boxes of labels and values.
+    const padded = expand(labels, Math.min(24, labels.h * 0.3 + 12));
     box = { x: padded.x, y: padded.y, w: pageText.width - padded.x, h: padded.h };
   }
   return { drawingNumber, title, scale, box };

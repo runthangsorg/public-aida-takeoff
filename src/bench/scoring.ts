@@ -27,6 +27,13 @@ export interface GroundTruthFile {
   /** item key (tag or name) → true count */
   items: Record<string, number>;
   descriptions?: Record<string, string>;
+  /**
+   * Which engine items (legend tags or legend descriptions) make up each
+   * ground-truth line, when the bill's wording differs from the legend's.
+   * Several engine items may sum into one line. Identifying the symbol for a
+   * bill line is allowed; the counts themselves must still come from the bill.
+   */
+  mapping?: Record<string, string[]>;
 }
 
 export interface ItemScore {
@@ -127,14 +134,30 @@ export function scoreSet(set: string, files: string[], truth: GroundTruthFile, r
   const items: ItemScore[] = [];
   for (const [rawKey, truthCount] of Object.entries(truth.items)) {
     const key = normalizeText(rawKey);
-    let matchKey: string | undefined = totals.has(key) ? key : undefined;
-    if (matchKey === undefined) {
-      const desc = truth.descriptions?.[rawKey];
-      if (desc !== undefined) matchKey = byDescription.get(normalizeText(desc));
+    const mapped = truth.mapping?.[rawKey];
+    let matchKeys: string[] = [];
+    if (mapped) {
+      matchKeys = mapped.map((m) => normalizeText(m)).map((m) => (totals.has(m) ? m : byDescription.get(m))).filter((m): m is string => m !== undefined);
+    } else {
+      let matchKey: string | undefined = totals.has(key) ? key : undefined;
+      if (matchKey === undefined) {
+        const desc = truth.descriptions?.[rawKey];
+        if (desc !== undefined) matchKey = byDescription.get(normalizeText(desc));
+      }
+      matchKey ??= byDescription.get(key);
+      if (matchKey !== undefined) matchKeys = [matchKey];
     }
-    matchKey ??= byDescription.get(key);
-    const engine = matchKey === undefined ? undefined : totals.get(matchKey);
-    if (matchKey !== undefined) used.add(matchKey);
+    const engines = matchKeys.map((k) => totals.get(k)).filter((e): e is NonNullable<typeof e> => e !== undefined);
+    for (const k of matchKeys) used.add(k);
+    const engine =
+      engines.length === 0
+        ? undefined
+        : {
+            count: engines.reduce((a, e) => a + e.count, 0),
+            needsReview: engines.reduce((a, e) => a + e.needsReview, 0),
+            sources: new Set(engines.flatMap((e) => [...e.sources])),
+            description: engines.map((e) => e.description).join(' + '),
+          };
     const predicted = engine?.count ?? 0;
     const absError = Math.abs(predicted - truthCount);
     const relError = truthCount === 0 ? null : absError / truthCount;
