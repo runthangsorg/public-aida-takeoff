@@ -1,0 +1,48 @@
+{
+  "set": "set-01",
+  "description": "Tagged lighting and fire layout, A1, two levels, legend on every sheet",
+  "source": "scripts/make-fixtures.ts, seed 1 (synthetic; counts are exact by construction)",
+  "units": "nr",
+  "items": {
+    "A1": 223,
+    "A2": 183,
+    "B1": 85,
+    "EM": 67,
+    "EX": 35,
+    "SD": 114,
+    "HD": 45,
+    "SP": 118
+  },
+  "descriptions": {
+    "A1": "LED downlight, 150 mm, recessed",
+    "A2": "LED panel, 600 x 600 mm, recessed",
+    "B1": "LED linear luminaire, 1200 mm, surface mounted",
+    "EM": "Self-contained emergency luminaire, 3 hour",
+    "EX": "Illuminated exit sign, maintained",
+    "SD": "Optical smoke detector, ceiling mounted, addressable",
+    "HD": "Rate-of-rise heat detector, ceiling mounted, addressable",
+    "SP": "Sprinkler head, pendent, quick response"
+  },
+  "perSheet": {
+    "E-301": {
+      "SP": 69,
+      "SD": 61,
+      "A1": 127,
+      "A2": 104,
+      "B1": 39,
+      "EM": 39,
+      "HD": 18,
+      "EX": 25
+    },
+    "E-302": {
+      "EM": 28,
+      "SP": 49,
+      "A2": 79,
+      "A1": 96,
+      "HD": 27,
+      "B1": 46,
+      "SD": 53,
+      "EX": 10
+    }
+  }
+}
