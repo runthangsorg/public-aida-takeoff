@@ -15,6 +15,26 @@ export interface VerifyOptions {
   batchSize: number;
   /** Crop side in points around the detection centre. */
   contextPt: number;
+  /**
+   * A detection with no other detection within this many symbol sizes is
+   * "isolated" and gets a second look whatever its confidence: a model
+   * hallucination in an empty area of a sheet looks exactly like that.
+   */
+  isolationFactor: number;
+}
+
+/** Detections that deserve a second look: low confidence, already flagged, or isolated. */
+export function selectDoubtful(detections: readonly Detection[], opts: Pick<VerifyOptions, 'threshold' | 'isolationFactor'>): Detection[] {
+  const vision = detections.filter((d) => d.source === 'vision');
+  return vision.filter((d) => {
+    if (d.confidence < opts.threshold || d.needsReview) return true;
+    if (opts.isolationFactor <= 0) return false;
+    const size = (d.box.w + d.box.h) / 2;
+    const cx = d.box.x + d.box.w / 2;
+    const cy = d.box.y + d.box.h / 2;
+    const radius = opts.isolationFactor * size;
+    return !detections.some((o) => o !== d && o.page === d.page && Math.hypot(o.box.x + o.box.w / 2 - cx, o.box.y + o.box.h / 2 - cy) < radius);
+  });
 }
 
 interface VerifyAnswer {
@@ -57,9 +77,9 @@ export interface VerifyArgs {
 /** Returns the detections to keep, with confidences and review flags updated. */
 export async function verifyLowConfidence(args: VerifyArgs): Promise<Detection[]> {
   const ids = args.items.map((i) => i.id);
-  const doubtful = args.detections.filter((d) => d.source === 'vision' && (d.confidence < args.opts.threshold || d.needsReview));
+  const doubtful = selectDoubtful(args.detections, args.opts);
   if (doubtful.length === 0) return args.detections;
-  args.log?.(`page ${args.page}: verifying ${doubtful.length} low-confidence detection(s)`);
+  args.log?.(`page ${args.page}: verifying ${doubtful.length} low-confidence or isolated detection(s)`);
   const dropped = new Set<Detection>();
   for (let start = 0; start < doubtful.length; start += args.opts.batchSize) {
     const batch = doubtful.slice(start, start + args.opts.batchSize);
@@ -101,6 +121,7 @@ export async function verifyLowConfidence(args: VerifyArgs): Promise<Detection[]
       if (a.item === 'none') {
         if (conf >= 0.8) {
           dropped.add(d);
+          args.log?.(`page ${args.page}: dropped ${d.itemId} at (${Math.round(d.box.x)}, ${Math.round(d.box.y)}) on second look`);
         } else {
           d.needsReview = true;
           d.reviewReason = `second look saw no symbol (${conf.toFixed(2)})`;

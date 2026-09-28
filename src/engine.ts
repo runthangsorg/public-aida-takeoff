@@ -36,7 +36,7 @@ export interface CountOptions {
 }
 
 export function emptyUsage(model = 'none'): UsageRecord {
-  return { model, calls: 0, promptTokens: 0, outputTokens: 0, thoughtTokens: 0, costUsd: 0 };
+  return { model, calls: 0, cachedCalls: 0, promptTokens: 0, outputTokens: 0, thoughtTokens: 0, costUsd: 0 };
 }
 
 /** Merges per-page legends into one item list keyed by tag (or description when untagged). */

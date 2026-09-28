@@ -111,7 +111,7 @@ export class VertexClient {
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.tokenProvider = opts.tokenProvider ?? defaultToken;
     this.projectProvider = opts.project ? () => Promise.resolve(opts.project ?? '') : (opts.projectProvider ?? defaultProject);
-    this.usageRecord = { model: this.model, calls: 0, promptTokens: 0, outputTokens: 0, thoughtTokens: 0, costUsd: 0 };
+    this.usageRecord = { model: this.model, calls: 0, cachedCalls: 0, promptTokens: 0, outputTokens: 0, thoughtTokens: 0, costUsd: 0 };
   }
 
   usage(): UsageRecord {
@@ -129,9 +129,10 @@ export class VertexClient {
     return `https://aiplatform.googleapis.com/v1/projects/${this.project}/locations/${this.location}/publishers/google/models/${this.model}:generateContent`;
   }
 
-  private record(promptTokens: number, outputTokens: number, thoughtTokens: number): void {
+  private record(promptTokens: number, outputTokens: number, thoughtTokens: number, cached = false): void {
     const u = this.usageRecord;
     u.calls += 1;
+    if (cached) u.cachedCalls += 1;
     u.promptTokens += promptTokens;
     u.outputTokens += outputTokens;
     u.thoughtTokens += thoughtTokens;
@@ -156,7 +157,7 @@ export class VertexClient {
     if (cached) {
       const parsed = this.parse<T>(cached);
       // Cached calls cost nothing now, but are still counted as tokens so cost per set is honest.
-      this.record(parsed.usage.promptTokens, parsed.usage.outputTokens, parsed.usage.thoughtTokens);
+      this.record(parsed.usage.promptTokens, parsed.usage.outputTokens, parsed.usage.thoughtTokens, true);
       return { ...parsed, cached: true };
     }
     if (this.usageRecord.costUsd >= this.maxSpendUsd) {
