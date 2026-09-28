@@ -27,14 +27,19 @@ program
   .option('--out <file>', 'result JSON path', 'result.json')
   .option('--no-vision', 'skip the vision pass (vector text only)')
   .option('--cross-check', 'run vision for tagged items too and report disagreements')
+  .option('--no-verify', 'skip the second-look verification of low-confidence detections')
+  .option('--dpi <n>', 'render resolution for the vision pass', '200')
+  .option('--tile <px>', 'tile size in pixels', '1024')
+  .option('--model <name>', 'Vertex AI model id (default gemini-3.8-flash or $AIDA_MODEL)')
+  .option('--max-spend <usd>', 'abort once model spend passes this (default $AIDA_MAX_SPEND_USD or 2)')
   .option('--quiet', 'no progress on stderr')
-  .action(async (pdf: string, o: { legend: string; out: string; vision: boolean; crossCheck?: boolean; quiet?: boolean }) => {
+  .action(async (pdf: string, o: CountFlags) => {
     const log = o.quiet
       ? undefined
       : (m: string) => {
           console.error(`[aida] ${m}`);
         };
-    const vision = o.vision ? await loadVision(log) : undefined;
+    const vision = o.vision ? await loadVision(o, log) : undefined;
     const result = await countDrawing(resolve(pdf), { legend: parseLegend(o.legend), vision, crossCheck: o.crossCheck === true, log });
     await mkdir(dirname(resolve(o.out)), { recursive: true });
     await writeFile(resolve(o.out), JSON.stringify(result, null, 2) + '\n');
@@ -45,9 +50,29 @@ program
     console.error(`[aida] wrote ${o.out}; ${result.usage.calls} model call(s), $${result.usage.costUsd.toFixed(4)}, ${result.wallTimeMs} ms`);
   });
 
-async function loadVision(log?: (m: string) => void) {
+interface CountFlags {
+  legend: string;
+  out: string;
+  vision: boolean;
+  verify: boolean;
+  crossCheck?: boolean;
+  dpi: string;
+  tile: string;
+  model?: string;
+  maxSpend?: string;
+  quiet?: boolean;
+}
+
+async function loadVision(o: { verify: boolean; dpi: string; tile: string; model?: string; maxSpend?: string }, log?: (m: string) => void) {
   const mod = await import('./vision/index.ts');
-  return mod.createVisionPass({ log });
+  return mod.createVisionPass({
+    log,
+    verify: o.verify,
+    dpi: Number(o.dpi),
+    tile: Number(o.tile),
+    model: o.model,
+    maxSpendUsd: o.maxSpend === undefined ? undefined : Number(o.maxSpend),
+  });
 }
 
 program.parseAsync(process.argv).catch((err: unknown) => {
