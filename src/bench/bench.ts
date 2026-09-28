@@ -4,7 +4,7 @@
  */
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { countDrawing, mergeLegends, type CountOptions, type VisionPass } from '../engine.ts';
+import { countDrawing, mergeLegends, structuralBoxes, type CountOptions, type VisionPass } from '../engine.ts';
 import { extractText } from '../pdf/text.ts';
 import type { Legend, TakeoffResult } from '../types.ts';
 import { findLegends } from '../vector/legend.ts';
@@ -146,7 +146,7 @@ async function sharedLegend(drawings: readonly string[]): Promise<SharedLegend |
   for (const pdf of drawings) {
     let found = false;
     for (const page of await extractText(pdf)) {
-      const ls = findLegends(page);
+      const ls = findLegends(page, structuralBoxes(page));
       if (ls.length > 0) {
         legends.push(...ls);
         found = true;

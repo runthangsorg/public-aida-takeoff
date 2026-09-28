@@ -6,7 +6,7 @@
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { extractText } from './pdf/text.ts';
-import type { Box, Detection, ItemCount, Legend, LegendItem, PageResult, TakeoffResult, UsageRecord } from './types.ts';
+import type { Box, Detection, ItemCount, Legend, LegendItem, PageResult, PageText, TakeoffResult, UsageRecord } from './types.ts';
 import { findLegends } from './vector/legend.ts';
 import { countTags } from './vector/tags.ts';
 import { findNotesBox, readTitleBlock } from './vector/titleblock.ts';
@@ -33,6 +33,16 @@ export interface CountOptions {
   /** Always run vision for tagged items too and report disagreements. */
   crossCheck?: boolean;
   log?: ((message: string) => void) | undefined;
+}
+
+/** Title block and notes regions: legend headings inside them are sheet metadata, not legends. */
+export function structuralBoxes(p: PageText): Box[] {
+  const boxes: Box[] = [];
+  const tb = readTitleBlock(p).box;
+  if (tb) boxes.push(tb);
+  const notes = findNotesBox(p);
+  if (notes) boxes.push(notes);
+  return boxes;
 }
 
 export function emptyUsage(model = 'none'): UsageRecord {
@@ -78,7 +88,7 @@ export async function countDrawing(pdfPath: string, opts: CountOptions = {}): Pr
   // comes from a file, their text must not be counted as instances.
   const pageLegends: Legend[] = [];
   if (legendMode !== 'vision') {
-    for (const p of pages) pageLegends.push(...findLegends(p));
+    for (const p of pages) pageLegends.push(...findLegends(p, structuralBoxes(p)));
   }
   // Item list: from a file, from the sheets, or from vision.
   let legends: Legend[];

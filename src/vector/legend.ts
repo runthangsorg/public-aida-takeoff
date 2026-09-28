@@ -63,9 +63,13 @@ function median(values: number[]): number {
   return v[Math.floor(v.length / 2)] ?? 0;
 }
 
-/** Every legend on the page, top to bottom. */
-export function findLegends(pageText: PageText): Legend[] {
-  const headings = pageText.spans.filter((s) => HEADING.test(normalizeText(s.str)));
+/**
+ * Every legend on the page, top to bottom. `exclude` holds regions whose
+ * headings must be ignored: a title block often carries "LEGEND" as the
+ * sheet's subject, and the text under it is not a legend.
+ */
+export function findLegends(pageText: PageText, exclude: readonly Box[] = []): Legend[] {
+  const headings = pageText.spans.filter((s) => HEADING.test(normalizeText(s.str)) && !exclude.some((b) => inside(b, s)));
   headings.sort((a, b) => b.fontSize - a.fontSize || a.box.y - b.box.y);
   const found: Legend[] = [];
   for (const heading of headings) {
@@ -115,8 +119,9 @@ function readTable(pageText: PageText, heading: TextSpan): Legend | null {
     if (rows.length > 0 && gap > bodyFont * 10) break; // table ended (several empty rows)
     const text = normalizeText(line.spans.map((s) => s.str).join(' '));
     if (STOP_HEADING.test(text)) break;
+    // Wrapped lines of one description nearly touch; the next row starts after a table rule.
     const current = rows[rows.length - 1];
-    if (current && gap <= bodyFont * 0.8) current.push(line);
+    if (current && gap <= bodyFont * 0.6) current.push(line);
     else rows.push([line]);
     lastBottom = bottom;
   }
@@ -185,7 +190,8 @@ function readRows(pageText: PageText, heading: TextSpan): Legend | null {
     if (items.length > 1) rowGap = rowGap === null ? gap : Math.max(rowGap, gap);
     lastBottom = bottom;
   }
-  if (items.length === 0) return null;
+  // A row legend with no tags and fewer than three rows is more likely a stray heading.
+  if (items.length === 0 || (items.length < 3 && items.every((i) => i.tag === null))) return null;
   const rows = unionAll(items.map((i) => i.box)) ?? hb;
   const symbolMargin = Math.max(hb.h * 5, (rows.h / items.length) * 3);
   const box: Box = clampToPage(
