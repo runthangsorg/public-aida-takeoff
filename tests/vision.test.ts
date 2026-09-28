@@ -12,8 +12,10 @@ import { renderPage } from '../src/pdf/render.ts';
 import { extractText } from '../src/pdf/text.ts';
 import { findLegend } from '../src/vector/legend.ts';
 import { detectionSchema, tileBoxToPage } from '../src/vision/detect.ts';
+import type { Detection } from '../src/types.ts';
 import { createVisionPass, mapLimit } from '../src/vision/index.ts';
 import { dedupe, inkFraction, loadPageImage, makeTiles, tileOrigins, type Tile, type TileDetection } from '../src/vision/tiles.ts';
+import { selectDoubtful } from '../src/vision/verify.ts';
 import { PRICE_PER_MILLION, SpendCapError, VertexClient, type JsonSchema } from '../src/vision/vertex.ts';
 
 const bench = new URL('./fixtures/bench/', import.meta.url).pathname;
@@ -95,6 +97,29 @@ describe('de-duplication', () => {
     expect(out[0]?.itemId).toBe('SD');
     expect(out[0]?.needsReview).toBe(true);
     expect(out[0]?.reviewReason).toMatch(/HD/);
+  });
+});
+
+describe('second-look candidates', () => {
+  const d = (itemId: string, x: number, y: number, confidence = 1, source: 'vision' | 'vector' = 'vision'): Detection => ({
+    page: 1,
+    itemId,
+    box: { x, y, w: 10, h: 10 },
+    confidence,
+    source,
+    multiplier: 1,
+    needsReview: false,
+  });
+  it('picks low-confidence, flagged and isolated vision detections only', () => {
+    const cluster = [d('SD', 100, 100), d('SP', 130, 100), d('SSO', 100, 130, 0.5)];
+    const lonely = d('SW', 900, 900);
+    const nearTag = d('HD', 500, 500);
+    const tag = d('A1', 520, 500, 1, 'vector');
+    const flagged = { ...d('SD', 300, 300), needsReview: true };
+    const out = selectDoubtful([...cluster, lonely, nearTag, tag, flagged], { threshold: 0.75, isolationFactor: 6 });
+    expect(out.map((o) => o.itemId).sort()).toEqual(['SD', 'SSO', 'SW']);
+    expect(out.find((o) => o.itemId === 'SD')?.needsReview).toBe(true);
+    expect(selectDoubtful([lonely], { threshold: 0.75, isolationFactor: 0 })).toEqual([]);
   });
 });
 
@@ -233,8 +258,10 @@ describe('vision pass end to end with a scripted model', () => {
     const sp = detections.filter((d) => d.itemId === 'SP');
     // The SP at every tile's right edge lands inside the next tile too and must merge.
     expect(sp.length).toBeLessThan(tileCalls.length);
-    // Low-confidence SP detections went through verification (one batched call per page).
-    expect(calls.length).toBe(tileCalls.length + 1);
+    // Low-confidence SP and isolated detections went through verification in batched calls.
+    const verifyCalls = calls.length - tileCalls.length;
+    expect(verifyCalls).toBeGreaterThanOrEqual(1);
+    expect(verifyCalls).toBeLessThanOrEqual(Math.ceil((sd.length + sp.length) / 12));
     for (const d of detections) {
       expect(d.source).toBe('vision');
       expect(d.box.x).toBeGreaterThanOrEqual(0);

@@ -29,6 +29,7 @@ export interface VisionOptions {
   /** Skip the second-look verification pass. */
   verify?: boolean | undefined;
   verifyThreshold?: number | undefined;
+  isolationFactor?: number | undefined;
   mediaResolution?: MediaResolution | undefined;
   /** Injected client, for tests. */
   client?: VertexClient | undefined;
@@ -42,6 +43,8 @@ export interface VisionSettings {
   concurrency: number;
   verify: boolean;
   verifyThreshold: number;
+  /** See VerifyOptions.isolationFactor. */
+  isolationFactor: number;
   mediaResolution: MediaResolution | undefined;
 }
 
@@ -52,6 +55,7 @@ export const defaultSettings: VisionSettings = {
   concurrency: 4,
   verify: true,
   verifyThreshold: 0.75,
+  isolationFactor: 6,
   mediaResolution: 'MEDIA_RESOLUTION_HIGH',
 };
 
@@ -80,6 +84,7 @@ export function createVisionPass(opts: VisionOptions = {}): Promise<VisionPass> 
     concurrency: opts.concurrency ?? defaultSettings.concurrency,
     verify: opts.verify ?? defaultSettings.verify,
     verifyThreshold: opts.verifyThreshold ?? defaultSettings.verifyThreshold,
+    isolationFactor: opts.isolationFactor ?? defaultSettings.isolationFactor,
     mediaResolution: opts.mediaResolution ?? defaultSettings.mediaResolution,
   };
   const client =
@@ -149,7 +154,7 @@ export function createVisionPass(opts: VisionOptions = {}): Promise<VisionPass> 
             image,
             scale,
             detections,
-            opts: { threshold: settings.verifyThreshold, batchSize: 12, contextPt: 60 },
+            opts: { threshold: settings.verifyThreshold, batchSize: 12, contextPt: 60, isolationFactor: settings.isolationFactor },
             log,
           });
         }

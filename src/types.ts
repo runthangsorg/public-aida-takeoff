@@ -86,6 +86,8 @@ export interface ItemCount {
 export interface UsageRecord {
   model: string;
   calls: number;
+  /** Calls answered from the local response cache (no network, no new spend; wall time is not representative). */
+  cachedCalls: number;
   promptTokens: number;
   outputTokens: number;
   thoughtTokens: number;
