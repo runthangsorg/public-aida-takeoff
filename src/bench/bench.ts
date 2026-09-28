@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { countDrawing, mergeLegends, type CountOptions, type VisionPass } from '../engine.ts';
 import { extractText } from '../pdf/text.ts';
 import type { Legend, TakeoffResult } from '../types.ts';
-import { findLegend } from '../vector/legend.ts';
+import { findLegends } from '../vector/legend.ts';
 import { isGroundTruth, scoreSet, summarise, type BenchReport, type SetScore } from './scoring.ts';
 
 export interface BenchOptions {
@@ -66,6 +66,17 @@ export async function runBench(benchDir: string, opts: BenchOptions = {}): Promi
     if (!isGroundTruth(truthRaw)) {
       scores.push(errorScore(set, 'ground truth must be { items: { "<tag>": <count> } }', started));
       continue;
+    }
+    // A sibling mapping.json (bill line -> legend tags/descriptions) may sit next to the ground truth,
+    // so the bill's counts stay untouched while the symbol identification is added separately.
+    try {
+      const extra = JSON.parse(await readFile(join(set.dir, 'mapping.json'), 'utf8')) as unknown;
+      if (typeof extra === 'object' && extra !== null && !Array.isArray(extra)) {
+        truthRaw.mapping = { ...(truthRaw.mapping ?? {}), ...(extra as Record<string, string[]>) };
+        log(`${set.name}: mapping.json adds ${Object.keys(extra).length} line(s)`);
+      }
+    } catch {
+      // no mapping file
     }
     if (set.drawings.length === 0) {
       scores.push(errorScore(set, 'no drawings', started));
@@ -135,9 +146,9 @@ async function sharedLegend(drawings: readonly string[]): Promise<SharedLegend |
   for (const pdf of drawings) {
     let found = false;
     for (const page of await extractText(pdf)) {
-      const l = findLegend(page);
-      if (l) {
-        legends.push(l);
+      const ls = findLegends(page);
+      if (ls.length > 0) {
+        legends.push(...ls);
         found = true;
       }
     }

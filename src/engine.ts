@@ -7,7 +7,7 @@ import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { extractText } from './pdf/text.ts';
 import type { Box, Detection, ItemCount, Legend, LegendItem, PageResult, TakeoffResult, UsageRecord } from './types.ts';
-import { findLegend } from './vector/legend.ts';
+import { findLegends } from './vector/legend.ts';
 import { countTags } from './vector/tags.ts';
 import { findNotesBox, readTitleBlock } from './vector/titleblock.ts';
 
@@ -78,10 +78,7 @@ export async function countDrawing(pdfPath: string, opts: CountOptions = {}): Pr
   // comes from a file, their text must not be counted as instances.
   const pageLegends: Legend[] = [];
   if (legendMode !== 'vision') {
-    for (const p of pages) {
-      const l = findLegend(p);
-      if (l) pageLegends.push(l);
-    }
+    for (const p of pages) pageLegends.push(...findLegends(p));
   }
   // Item list: from a file, from the sheets, or from vision.
   let legends: Legend[];

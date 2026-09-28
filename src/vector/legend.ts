@@ -1,7 +1,18 @@
 /**
- * Finds a legend in the vector text of a page: a heading such as LEGEND or
- * SYMBOLS, followed by rows of [symbol] [tag] [description]. The symbol
- * itself is graphics, so the row box is widened to the left to include it.
+ * Finds legends in the vector text of a page.
+ *
+ * Two shapes are recognised:
+ *
+ * - Row legends: a heading (LEGEND, SYMBOLS, KEY) followed by rows of
+ *   `[symbol] [tag] [description]`.
+ * - Table legends: the heading sits in a header row with column titles such
+ *   as MANUFACTURER'S CAT No. or MOUNTING HEIGHT. Descriptions fill the
+ *   column to the left of those, wrapping over lines; the type tag is a
+ *   short text inside the symbol column further left; the catalogue column
+ *   is kept as a reference.
+ *
+ * The symbol itself is graphics, so every legend box is widened to the
+ * left to cover the symbol column.
  */
 import { boxFromCorners, clampToPage, unionAll } from '../geometry.ts';
 import { normalizeText } from '../pdf/text.ts';
@@ -9,6 +20,7 @@ import type { Box, Legend, LegendItem, PageText, TextSpan } from '../types.ts';
 
 const HEADING = /^(?:[A-Z&/ ]{0,24}\b)?(?:LEGEND|LEGENDS|SYMBOLS?|KEY TO SYMBOLS|SYMBOL KEY)\b[:.]?$/;
 const STOP_HEADING = /^(?:NOTES?|GENERAL NOTES|ABBREVIATIONS|DRAWING TITLE|DRAWING NO|PROJECT|SCALE|REV(?:ISION)?|STATUS|KEY PLAN|SCHEDULE)\b/;
+const COLUMN = /^(?:MANUFACTURERS?'?S?\b|MANUFACTURER'S|CAT(?:ALOGUE)?\.?\s*NO|MOUNTING|HEIGHT|DESCRIPTION|SYMBOL|REMARKS?|QTY|QUANTITY|REF(?:ERENCE)?\.?$|TYPE$|MAKE|MODEL)/;
 
 /** A type tag: one to four letters, up to three digits, optional trailing letter or suffix. */
 export const TAG = /^[A-Z]{1,4}-?[0-9]{0,3}[A-Z]?$/;
@@ -40,23 +52,110 @@ export function groupLines(spans: readonly TextSpan[], tolerance = 0.6): Line[] 
   return lines;
 }
 
-export function findLegend(pageText: PageText): Legend | null {
-  const headings = pageText.spans.filter((s) => HEADING.test(normalizeText(s.str)));
-  if (headings.length === 0) return null;
-  // Prefer the largest heading; ties go to the top-most.
-  headings.sort((a, b) => b.fontSize - a.fontSize || a.box.y - b.box.y);
-  for (const heading of headings) {
-    const legend = readLegendBelow(pageText, heading);
-    if (legend && legend.items.length > 0) return legend;
-  }
-  return null;
+function inside(b: Box, s: TextSpan): boolean {
+  const cx = s.box.x + s.box.w / 2;
+  const cy = s.box.y + s.box.h / 2;
+  return cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h;
 }
 
-function readLegendBelow(pageText: PageText, heading: TextSpan): Legend | null {
+function median(values: number[]): number {
+  const v = [...values].sort((a, b) => a - b);
+  return v[Math.floor(v.length / 2)] ?? 0;
+}
+
+/** Every legend on the page, top to bottom. */
+export function findLegends(pageText: PageText): Legend[] {
+  const headings = pageText.spans.filter((s) => HEADING.test(normalizeText(s.str)));
+  headings.sort((a, b) => b.fontSize - a.fontSize || a.box.y - b.box.y);
+  const found: Legend[] = [];
+  for (const heading of headings) {
+    if (found.some((l) => inside(l.box, heading))) continue;
+    const legend = readTable(pageText, heading) ?? readRows(pageText, heading);
+    if (legend && legend.items.length > 0) found.push(legend);
+  }
+  return found.sort((a, b) => a.box.y - b.box.y);
+}
+
+/** The first legend on the page (kept for callers that expect one). */
+export function findLegend(pageText: PageText): Legend | null {
+  return findLegends(pageText)[0] ?? null;
+}
+
+function readTable(pageText: PageText, heading: TextSpan): Legend | null {
+  const hb = heading.box;
+  // Column titles: to the right of the heading, within a few heading heights vertically.
+  const headerSpans = pageText.spans.filter(
+    (s) => s !== heading && s.box.x > hb.x + hb.w * 0.5 && Math.abs(s.box.y + s.box.h / 2 - (hb.y + hb.h / 2)) < Math.max(hb.h, s.box.h) * 2.5 && COLUMN.test(normalizeText(s.str)),
+  );
+  if (headerSpans.length === 0) return null;
+  const columns = [...new Set(headerSpans.map((s) => Math.round(s.box.x)))].sort((a, b) => a - b);
+  const firstCol = columns[0] ?? Infinity;
+  const headerBottom = Math.max(hb.y + hb.h, ...headerSpans.map((s) => s.box.y + s.box.h));
+  const right = Math.max(...headerSpans.map((s) => s.box.x + s.box.w)) + hb.h * 2;
+
+  // Description column: text below the header, left of the first title column.
+  const below = pageText.spans.filter((s) => s.box.y > headerBottom - hb.h * 0.2 && s.box.x < firstCol - 4 && s.box.x + s.box.w <= right);
+  const prose = below.filter((s) => s.str.trim().length >= 4 && !isTagLike(s.str));
+  if (prose.length === 0) return null;
+  const xs = prose.map((s) => s.box.x).sort((a, b) => a - b);
+  const descLeft = xs[Math.floor(xs.length * 0.1)] ?? xs[0] ?? 0;
+  const bodyFont = median(prose.map((s) => s.fontSize));
+  const descSpans = below.filter((s) => s.box.x >= descLeft - 2 && s.fontSize <= bodyFont * 1.6);
+  const symbolSpans = below.filter((s) => s.box.x < descLeft - 2 && s.box.x > descLeft - hb.h * 10 && isTagLike(s.str));
+  const refSpans = pageText.spans.filter((s) => s.box.y > headerBottom - hb.h * 0.2 && s.box.x >= firstCol - 4 && s.box.x < (columns[1] ?? right) - 4 && s.box.x + s.box.w <= right + hb.h * 4);
+
+  // Rows: description lines closer than most of a line height belong together (wrapped text).
+  const lines = groupLines(descSpans);
+  const rows: Line[][] = [];
+  let lastBottom = -Infinity;
+  for (const line of lines) {
+    const top = Math.min(...line.spans.map((s) => s.box.y));
+    const bottom = Math.max(...line.spans.map((s) => s.box.y + s.box.h));
+    const gap = top - lastBottom;
+    if (rows.length > 0 && gap > bodyFont * 10) break; // table ended (several empty rows)
+    const text = normalizeText(line.spans.map((s) => s.str).join(' '));
+    if (STOP_HEADING.test(text)) break;
+    const current = rows[rows.length - 1];
+    if (current && gap <= bodyFont * 0.8) current.push(line);
+    else rows.push([line]);
+    lastBottom = bottom;
+  }
+  const pitch = rows.length > 1 ? median(rows.slice(1).map((r, i) => (r[0]?.y ?? 0) - (rows[i]?.[0]?.y ?? 0))) : bodyFont * 2.5;
+
+  const items: LegendItem[] = [];
+  let n = 0;
+  for (const row of rows) {
+    const spans = row.flatMap((l) => l.spans);
+    const description = normalizeText(spans.map((s) => s.str).join(' '));
+    if (description.length < 3) continue;
+    const top = Math.min(...spans.map((s) => s.box.y));
+    const bottom = Math.max(...spans.map((s) => s.box.y + s.box.h));
+    const yMid = (top + bottom) / 2;
+    const within = (s: TextSpan) => s.box.y + s.box.h / 2 >= top - pitch * 0.45 && s.box.y + s.box.h / 2 <= bottom + pitch * 0.45;
+    const tagSpan = symbolSpans.filter(within).sort((a, b) => Math.abs(a.box.y + a.box.h / 2 - yMid) - Math.abs(b.box.y + b.box.h / 2 - yMid))[0];
+    const tag = tagSpan ? normalizeText(tagSpan.str) : null;
+    const reference = normalizeText(refSpans.filter(within).map((s) => s.str).join(' '));
+    n++;
+    const rowBox = unionAll([...spans, ...(tagSpan ? [tagSpan] : [])].map((s) => s.box)) ?? spans[0]?.box ?? hb;
+    const item: LegendItem = { id: tag ?? `L${n}`, tag, description, box: rowBox, page: pageText.page };
+    if (reference.length > 0) item.reference = reference;
+    items.push(item);
+  }
+  if (items.length === 0) return null;
+  const rowsBox = unionAll(items.map((i) => i.box)) ?? hb;
+  const box = clampToPage(
+    boxFromCorners(Math.min(descLeft - hb.h * 6, rowsBox.x), Math.min(hb.y, rowsBox.y) - hb.h * 0.5, right, rowsBox.y + rowsBox.h + pitch * 0.5),
+    pageText.width,
+    pageText.height,
+  );
+  return { page: pageText.page, box, items, source: 'vector' };
+}
+
+function readRows(pageText: PageText, heading: TextSpan): Legend | null {
   const hb = heading.box;
   // Candidate rows: below the heading, roughly aligned with it (a legend is a
-  // column; rows begin within half a page-width to the right of the heading
-  // and no more than a few characters to its left).
+  // column; rows begin within a third of the page width to the right of the
+  // heading and no more than a few characters to its left).
   const left = hb.x - hb.h * 6;
   const right = Math.min(pageText.width, hb.x + Math.max(pageText.width * 0.35, 320));
   const below = pageText.spans.filter((s) => s !== heading && s.box.y > hb.y + hb.h * 0.5 && s.box.x >= left && s.box.x < right);
@@ -88,7 +187,7 @@ function readLegendBelow(pageText: PageText, heading: TextSpan): Legend | null {
   }
   if (items.length === 0) return null;
   const rows = unionAll(items.map((i) => i.box)) ?? hb;
-  const symbolMargin = Math.max(hb.h * 5, rows.h / items.length * 3);
+  const symbolMargin = Math.max(hb.h * 5, (rows.h / items.length) * 3);
   const box: Box = clampToPage(
     boxFromCorners(Math.min(hb.x, rows.x) - symbolMargin, hb.y - hb.h * 0.5, Math.max(hb.x + hb.w, rows.x + rows.w) + hb.h, rows.y + rows.h + hb.h),
     pageText.width,

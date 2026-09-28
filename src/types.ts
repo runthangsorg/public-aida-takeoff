@@ -35,6 +35,8 @@ export interface LegendItem {
   /** Type tag printed on the drawing next to each instance (for example `A1`, `SD`). */
   tag: string | null;
   description: string;
+  /** Catalogue or manufacturer reference from a table legend, when present. */
+  reference?: string;
   /** Where the legend row sits on the page it was read from. */
   box: Box;
   page: number;

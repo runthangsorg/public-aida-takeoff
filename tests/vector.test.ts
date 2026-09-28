@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { countDrawing } from '../src/engine.ts';
 import { extractText } from '../src/pdf/text.ts';
-import { findLegend, groupLines, isTagLike } from '../src/vector/legend.ts';
-import { parseTagSpan } from '../src/vector/tags.ts';
+import { findLegend, findLegends, groupLines, isTagLike } from '../src/vector/legend.ts';
+import { countTags, parseTagSpan } from '../src/vector/tags.ts';
 import { findNotesBox, readTitleBlock } from '../src/vector/titleblock.ts';
 import type { GroundTruth } from '../scripts/make-fixtures.ts';
 
@@ -30,9 +30,28 @@ describe('tag parsing', () => {
     expect(parseTagSpan('A2', tags)).toBeNull();
     expect(parseTagSpan('SEE A1', tags)).toBeNull();
   });
+  it('never reads an amperage or other unit as a multiplied single-letter tag', () => {
+    const letters = new Set(['A', 'W', 'B', 'SD']);
+    expect(parseTagSpan('13A', letters)).toBeNull();
+    expect(parseTagSpan('20W', letters)).toBeNull();
+    expect(parseTagSpan('2B', letters)).toBeNull();
+    expect(parseTagSpan('2 NO. B', letters)).toEqual({ tag: 'B', multiplier: 2 });
+    expect(parseTagSpan('2SD', letters)).toEqual({ tag: 'SD', multiplier: 2 });
+    expect(parseTagSpan('B x3', letters)).toEqual({ tag: 'B', multiplier: 3 });
+  });
   it('recognises tag-like strings', () => {
     for (const s of ['A1', 'SD', 'SSO', 'L12', 'FCU-3', 'AHU01', 'X']) expect(isTagLike(s), s).toBe(true);
     for (const s of ['OFFICE 3.01', '1:100', 'LEGEND', 'ADDRESSABLE', '2200 x 2788']) expect(isTagLike(s), s).toBe(false);
+  });
+});
+
+describe('tag counting', () => {
+  it('counts letters drawn inside one symbol once and neighbouring symbols separately', () => {
+    const mk = (str: string, x: number, y: number, size: number) => ({ str, box: { x, y, w: size * 0.6, h: size }, fontSize: size });
+    const page = { page: 1, width: 500, height: 500, spans: [mk('F', 100, 100, 1.6), mk('F', 101, 102, 1.6), mk('F', 98, 103, 1.6), mk('F', 120, 100, 1.6), mk('B', 200, 200, 7), mk('B', 212, 200, 7)] };
+    const dets = countTags(page, new Set(['F', 'B']), []);
+    expect(dets.filter((d) => d.itemId === 'F')).toHaveLength(2);
+    expect(dets.filter((d) => d.itemId === 'B')).toHaveLength(2);
   });
 });
 
@@ -83,6 +102,70 @@ describe('legend', () => {
   it('finds no legend on the second sheet of set-03', async () => {
     const pages = await extractText(set03);
     expect(findLegend(pages[1]!)).toBeNull();
+  });
+});
+
+describe('table legend', () => {
+  const span = (str: string, x: number, y: number, size = 9): { str: string; box: { x: number; y: number; w: number; h: number }; fontSize: number } => ({
+    str,
+    box: { x, y: y - size / 2, w: str.length * size * 0.55, h: size },
+    fontSize: size,
+  });
+  // Modelled on a tender legend sheet: SYMBOL | DESCRIPTION | MANUFACTURER'S CAT No. | MOUNTING HEIGHT.
+  const page = {
+    page: 1,
+    width: 1684,
+    height: 1191,
+    spans: [
+      span('LEGEND', 629, 132, 24),
+      span('MANUFACTURERS CAT', 908, 132, 10),
+      span('No.', 908, 142, 10),
+      span('MOUNTING', 1057, 132),
+      span('HEIGHT', 1057, 142),
+      span('600mm, 4x18w FLUORESCENT FITTING WITH CAT2 MIRROR LOUVERS', 471, 169),
+      span('THORN FTB418', 915, 169),
+      span('CEILING', 1062, 169),
+      span('A', 423, 192),
+      span('HORIZONTAL LOW ENERGY DOWNLIGHT', 471, 192),
+      span('FITZGERALD UFO', 916, 192),
+      span('CEILING', 1059, 192),
+      span('D', 422, 271, 11),
+      span('SURFACE MOUNTED WALL BRACKET WITH ENERGY SAVING LAMP', 466, 271),
+      span('THORN WSTR118W', 911, 271),
+      span('2100mm', 1061, 271),
+      span('MELLOW LIGHT CEILING LUMINAIRE FOR 18W TC-TEL COMPACT FLUORESCENT WITH SOFT', 465, 291),
+      span('E', 423, 297),
+      span('TABULAR SHAPE AND BRUSHED STAINLESS STEEL FIXINGS', 465, 304),
+      span('THORN GARBO', 916, 291),
+      span('CEILING', 1059, 291),
+      span('F', 425, 319, 5),
+      span('F', 420, 325, 5),
+      span('F', 430, 325, 5),
+      span('ELEGANT CHANDELIER LUMINAIRE FOR 36W LAMPS WITH 3 SHADES', 463, 325),
+      span('THORN J121685', 914, 319),
+      span('5A 1 GANG 1 WAY MOULDED PLATE SWITCH FOR FLUSH MOUNTING', 471, 349),
+      span('CRABTREE 4070', 918, 349),
+      span('1400mm', 1055, 349),
+      span('LEGEND', 434, 1064, 70),
+      span('NOTES', 1240, 160, 8),
+      span('1. Do not scale from this drawing.', 1240, 175, 7),
+    ],
+  };
+
+  it('reads rows with wrapped descriptions, symbol-column tags and catalogue references', () => {
+    const legends = findLegends(page);
+    expect(legends).toHaveLength(1);
+    const items = legends[0]!.items;
+    expect(items.map((i) => i.tag)).toEqual([null, 'A', 'D', 'E', 'F', null]);
+    expect(items[3]?.description).toBe('MELLOW LIGHT CEILING LUMINAIRE FOR 18W TC-TEL COMPACT FLUORESCENT WITH SOFT TABULAR SHAPE AND BRUSHED STAINLESS STEEL FIXINGS');
+    expect(items[2]?.reference).toBe('THORN WSTR118W');
+    expect(items[5]?.description).toMatch(/^5A 1 GANG 1 WAY/);
+    expect(items[5]?.reference).toBe('CRABTREE 4070');
+    // The box covers the symbol column and stops before the notes.
+    const box = legends[0]!.box;
+    expect(box.x).toBeLessThan(420);
+    expect(box.x + box.w).toBeLessThan(1240);
+    expect(box.y + box.h).toBeGreaterThan(349);
   });
 });
 
