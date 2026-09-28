@@ -56,6 +56,15 @@ describe('scoring', () => {
     expect(s.extraItems.map((e) => e.key).sort()).toEqual(['TYPE-A', 'XX']);
   });
 
+  it('sums mapped engine items into one bill line', () => {
+    const t: GroundTruthFile = { items: { 'Lighting points': 30, 'Twin sockets': 5 }, mapping: { 'Lighting points': ['A1', 'A2', 'led linear luminaire'] } };
+    const s = scoreSet('set-x', ['a.pdf'], t, [result('a.pdf', { A1: 10, A2: 15, B1: 5, SSO: 5 }, { B1: 'LED linear luminaire' })], 5);
+    expect(s.items[0]?.predicted).toBe(30);
+    expect(s.items[0]?.within).toBe(true);
+    expect(s.items[1]?.matched).toBe(false);
+    expect(s.extraItems.map((e) => e.key)).toEqual(['SSO']);
+  });
+
   it('marks unmatched ground-truth items as not found with 100 % error', () => {
     const s = scoreSet('set-x', ['a.pdf'], truth, [result('a.pdf', { SD: 10 })], 5);
     expect(s.items[0]?.matched).toBe(false);
@@ -109,6 +118,18 @@ describe('bench runner on the synthetic fixtures (vector only)', () => {
     // Per-drawing results were written for review.
     const written = JSON.parse(readFileSync(join(tmp, 'set-01', 'E-301-lighting-fire-layout.pdf.result.json'), 'utf8')) as TakeoffResult;
     expect(written.items.length).toBe(8);
+  });
+
+  it('shares a legend read on one drawing with the others of the set', async () => {
+    // A set whose legend sheet is a separate file: the fixture's own drawing plus a copy without the legend is
+    // simulated by handing the runner a set with the legend-bearing set-03 drawing and reading its second sheet.
+    const dir = join(tmp, 'shared');
+    const { mkdirSync, copyFileSync, writeFileSync } = await import('node:fs');
+    mkdirSync(join(dir, 'set-10', 'drawings'), { recursive: true });
+    copyFileSync(`${bench}set-03/drawings/E-401-combined-services-layout.pdf`, join(dir, 'set-10', 'drawings', 'a.pdf'));
+    writeFileSync(join(dir, 'set-10', 'ground_truth.json'), JSON.stringify({ items: { A1: 152 } }));
+    const report = await runBench(dir);
+    expect(report.sets[0]?.items[0]?.predicted).toBe(152);
   });
 
   it('runs a subset and reports a set without drawings as an error', async () => {

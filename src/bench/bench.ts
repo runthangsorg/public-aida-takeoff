@@ -4,8 +4,10 @@
  */
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { countDrawing, type CountOptions, type VisionPass } from '../engine.ts';
-import type { TakeoffResult } from '../types.ts';
+import { countDrawing, mergeLegends, type CountOptions, type VisionPass } from '../engine.ts';
+import { extractText } from '../pdf/text.ts';
+import type { Legend, TakeoffResult } from '../types.ts';
+import { findLegend } from '../vector/legend.ts';
 import { isGroundTruth, scoreSet, summarise, type BenchReport, type SetScore } from './scoring.ts';
 
 export interface BenchOptions {
@@ -72,9 +74,16 @@ export async function runBench(benchDir: string, opts: BenchOptions = {}): Promi
     const vision = opts.makeVision ? await opts.makeVision() : undefined;
     const results: TakeoffResult[] = [];
     try {
+      // A set's legend is often a separate sheet or file: read every drawing's
+      // vector legend first and share the merged list with drawings lacking one.
+      const shared = await sharedLegend(set.drawings);
+      if (shared) log(`${set.name}: shared legend with ${shared.legend.items.length} item(s) from ${shared.files.join(', ')}`);
       for (const pdf of set.drawings) {
+        const own = shared?.perFile.get(pdf) ?? false;
+        const legendOpt: CountOptions['legend'] = own || !shared ? (opts.countOptions?.legend ?? 'auto') : { legend: shared.legend };
         const result = await countDrawing(pdf, {
           ...(opts.countOptions ?? {}),
+          legend: legendOpt,
           vision,
           log: (m) => {
             log(`${set.name}/${result_name(pdf)}: ${m}`);
@@ -111,6 +120,33 @@ export async function runBench(benchDir: string, opts: BenchOptions = {}): Promi
     sets: scores,
     summary: summarise(scores),
   };
+}
+
+interface SharedLegend {
+  legend: Legend;
+  files: string[];
+  perFile: Map<string, boolean>;
+}
+
+async function sharedLegend(drawings: readonly string[]): Promise<SharedLegend | null> {
+  const legends: Legend[] = [];
+  const files: string[] = [];
+  const perFile = new Map<string, boolean>();
+  for (const pdf of drawings) {
+    let found = false;
+    for (const page of await extractText(pdf)) {
+      const l = findLegend(page);
+      if (l) {
+        legends.push(l);
+        found = true;
+      }
+    }
+    perFile.set(pdf, found);
+    if (found) files.push(result_name(pdf));
+  }
+  if (legends.length === 0) return null;
+  const items = mergeLegends(legends);
+  return { legend: { page: 0, box: { x: 0, y: 0, w: 0, h: 0 }, items, source: 'vector' }, files, perFile };
 }
 
 function result_name(pdf: string): string {

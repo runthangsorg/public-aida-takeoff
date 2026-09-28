@@ -11,7 +11,7 @@ import { findLegend } from './vector/legend.ts';
 import { countTags } from './vector/tags.ts';
 import { findNotesBox, readTitleBlock } from './vector/titleblock.ts';
 
-export type LegendMode = 'auto' | 'vector' | 'vision' | { file: string };
+export type LegendMode = 'auto' | 'vector' | 'vision' | { file: string } | { legend: Legend };
 
 export interface VisionPass {
   /** Finds instances of `items` on the given pages. Legend boxes let it crop a reference image. */
@@ -84,7 +84,12 @@ export async function countDrawing(pdfPath: string, opts: CountOptions = {}): Pr
     }
   }
   // Item list: from a file, from the sheets, or from vision.
-  const legends: Legend[] = typeof legendMode === 'object' ? [await loadLegendFile(legendMode.file)] : [...pageLegends];
+  let legends: Legend[];
+  if (typeof legendMode === 'object') {
+    legends = ['file' in legendMode ? await loadLegendFile(legendMode.file) : legendMode.legend];
+  } else {
+    legends = [...pageLegends];
+  }
   if (legends.length === 0 && legendMode !== 'vector' && opts.vision?.findLegend) {
     for (const p of pages) {
       const l = await opts.vision.findLegend({ pdfPath, page: p.page, width: p.width, height: p.height });
