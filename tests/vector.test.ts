@@ -204,8 +204,8 @@ describe('vector-only count', () => {
     for (const p of result.pages) for (const d of p.detections) expect(d.box.x).toBeLessThan(p.width);
   });
 
-  it('counts the tagged luminaires of set-03 exactly and defers fire devices to vision', async () => {
-    const result = await countDrawing(set03);
+  it('counts the tagged luminaires of set-03 exactly and, with symbols off, defers fire devices to vision', async () => {
+    const result = await countDrawing(set03, { symbols: false });
     const t = truth('set-03');
     for (const tag of ['A1', 'A2', 'B1', 'EM', 'EX']) {
       expect(result.items.find((i) => i.itemId === tag)?.count, tag).toBe(t.items[tag]);
@@ -216,8 +216,8 @@ describe('vector-only count', () => {
     expect(result.warnings[0]).toMatch(/vision disabled: 5 item/);
   });
 
-  it('reports every item of the untagged set-02 as needing vision', async () => {
-    const result = await countDrawing(set02);
+  it('with symbols off, reports every item of the untagged set-02 as needing vision', async () => {
+    const result = await countDrawing(set02, { symbols: false });
     expect(result.items.map((i) => i.count)).toEqual([0, 0, 0, 0]);
     expect(result.warnings).toHaveLength(1);
   });

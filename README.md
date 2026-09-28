@@ -15,26 +15,45 @@ by `scripts/make-fixtures.ts`. Benchmarks and customer files live elsewhere.
 
 1. **Vector text first, deterministically.** Most tender drawings are vector
    PDFs. pdf.js reads every text run with its position; the legend is found
-   from its heading and read as `[symbol] [tag] [description]`; the title
-   block gives the drawing number and scale. Every text run that is exactly a
-   legend tag (`A1`, `SD`, or a multiplier form such as `4 NO. A1`) outside
-   the legend, title block and notes is one instance. No model is involved,
-   and on tagged items this path is exact.
-2. **Vision for untagged symbols.** Items with no tag on the drawing are found
-   by rendering each page, tiling it with overlap, and showing Gemini on
-   Vertex AI the legend crop and one tile at a time. The model returns boxes
-   and item ids as structured JSON; de-duplication across tile overlaps,
-   exclusion of legend and title regions, and counting happen in code.
-3. **A second look.** Low-confidence and isolated detections are cropped out
-   and shown to the model again next to the legend. A confident "none" drops
-   the detection; disagreement flags it `needsReview` in every output.
+   from its heading and read as `[symbol] [tag] [description]` (row legends
+   and table legends with catalogue columns); the title block gives the
+   drawing number and scale. Every text run that is exactly a legend tag
+   (`A1`, `SD`, or a multiplier form such as `4 NO. A1`) outside the legend,
+   title block and notes is one instance. No model is involved, and on tagged
+   items this path is exact.
+2. **Vector symbols, deterministically.** CAD exports draw each instance of a
+   symbol as the same group of paths. The paths inside each legend row's
+   symbol cell become a signature (element shapes, sizes and positions
+   relative to the glyph, invariant to translation, uniform scale, quarter
+   turns and mirroring; hatch strips merged into one fill). Every plan path
+   with the anchor's shape is tried as an instance and the rest of the glyph
+   must be found around it; the fraction found is the match confidence.
+   Conflicts between items over the same paths go to the better and larger
+   match, so a two-gang switch drawn as two one-gang glyphs counts once, and
+   text inside a match that spells another legend tag rejects it. Still no
+   model. This works when the legend and the plan share block definitions;
+   a legend sheet drawn at another size with other primitives does not
+   transfer.
+3. **Vision for what is left.** Items with neither a tag nor a symbol match
+   go to the model (`--vision-fallback auto` sends them only on raster sheets
+   or when the anchor shape was seen but never matched as a whole; `always`
+   and `never` do what they say): each page is rendered, tiled with overlap,
+   and Gemini on Vertex AI is shown the legend crop and one tile at a time.
+   The model returns boxes and item ids as structured JSON; de-duplication
+   across tile overlaps, exclusion of legend and title regions, and counting
+   happen in code.
+4. **A second look.** Low-confidence and isolated model detections are
+   cropped out and shown to the model again next to the legend. A confident
+   "none" drops the detection; disagreement flags it `needsReview` in every
+   output.
 
 ## Command line
 
 ```sh
 aida-takeoff count <drawing.pdf> [--legend auto|vector|vision|legend.json] \
     [--out result.json] [--xlsx bill.xlsx] [--overlay marked.pdf] \
-    [--no-vision] [--no-verify] [--cross-check] [--dpi 200] [--tile 1024] \
+    [--no-symbols] [--no-vision] [--vision-fallback auto|never|always] \
+    [--no-verify] [--cross-check] [--dpi 200] [--tile 1024] \
     [--model gemini-3.8-flash] [--max-spend 2]
 
 aida-takeoff bench <dir> [--json report.json] [--out-dir results/] \
@@ -49,14 +68,17 @@ Outputs of `count`:
 
 - `result.json` — legend, per-page detections with coordinates (points from
   the top-left corner of the page as displayed), confidence and source
-  (`vector` or `vision`), item totals per page, model usage and cost.
+  (`vector` for a tag, `symbol` for a geometry match, `vision` for the
+  model), item totals per page, per-item symbol-matching statistics, model
+  usage and cost.
 - `--xlsx` — a bill of quantities with trade sections (lighting, small power,
   fire detection, sprinklers, air distribution, sanitary, other), one numbered
   item per legend row, `nr` quantities, an empty rate column, amount and total
   formulas, plus "Counts by drawing" and "Detections" sheets for audit.
 - `--overlay` — the original drawing with every detection boxed and
-  labelled: blue for tags read from the text, green for recognised symbols,
-  red for anything that needs a check.
+  labelled: blue for tags read from the text, purple for symbols matched on
+  vector geometry, green for symbols recognised by the model, red for
+  anything that needs a check.
 
 ## Benchmark harness
 
@@ -83,8 +105,9 @@ set (tokens × Gemini 3.8 Flash list price: $1.50 / $7.50 per million input /
 output tokens) and wall time. `--json` writes the full report.
 
 Result on the synthetic fixtures in `tests/fixtures/bench` (three sets, 22
-items): 3 of 3 sets pass strict with every item exact; about $0.29 per set
-on average (the fully tagged set costs nothing, the two-sheet A1 set $0.73).
+items): 3 of 3 sets pass strict with every item exact on vector text and
+vector symbols alone, at no model cost. With symbol matching switched off,
+the vision pass reaches the same counts for about $0.29 per set on average.
 
 ## Vertex AI access
 

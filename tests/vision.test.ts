@@ -281,7 +281,7 @@ describe('vision pass end to end with a scripted model', () => {
     });
     const client = new VertexClient({ fetchImpl: fetch, project: 'test', tokenProvider: () => Promise.resolve('t'), cacheDir: null });
     const vision = await createVisionPass({ client, dpi: 72, tile: 600, overlap: 100, workDir: join(tmp, 'work2'), renderer: 'pdftoppm' });
-    const result = await countDrawing(set02, { vision });
+    const result = await countDrawing(set02, { vision, symbols: false });
     // Every low-confidence SW was rejected on the second look, so nothing remains.
     expect(result.items.find((i) => i.itemId === 'SW')?.count).toBe(0);
     expect(result.usage.calls).toBeGreaterThan(1);

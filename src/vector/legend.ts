@@ -142,7 +142,10 @@ function readTable(pageText: PageText, heading: TextSpan): Legend | null {
     const reference = normalizeText(refSpans.filter(within).map((s) => s.str).join(' '));
     n++;
     const rowBox = unionAll([...spans, ...(tagSpan ? [tagSpan] : [])].map((s) => s.box)) ?? spans[0]?.box ?? hb;
-    const item: LegendItem = { id: tag ?? `L${n}`, tag, description, box: rowBox, page: pageText.page };
+    // The symbol cell: left of the description column, centred on the row, inside the row pitch.
+    const cellLeft = Math.max(0, descLeft - hb.h * 6);
+    const symbolBox = clampToPage({ x: cellLeft, y: yMid - pitch * 0.42, w: descLeft - 2 - cellLeft, h: pitch * 0.84 }, pageText.width, pageText.height);
+    const item: LegendItem = { id: tag ?? `L${n}`, tag, description, box: rowBox, page: pageText.page, symbolBox };
     if (reference.length > 0) item.reference = reference;
     items.push(item);
   }
@@ -192,6 +195,15 @@ function readRows(pageText: PageText, heading: TextSpan): Legend | null {
   }
   // A row legend with no tags and fewer than three rows is more likely a stray heading.
   if (items.length === 0 || (items.length < 3 && items.every((i) => i.tag === null))) return null;
+  // Symbol cells: left of each row's first text, centred on the row, within the row pitch.
+  const first = items[0];
+  const last = items[items.length - 1];
+  const pitch = items.length > 1 && first && last ? (last.box.y - first.box.y) / (items.length - 1) : hb.h * 2.5;
+  for (const it of items) {
+    const yMid = it.box.y + it.box.h / 2;
+    const cellLeft = Math.max(0, Math.min(hb.x, it.box.x) - hb.h * 6);
+    it.symbolBox = clampToPage({ x: cellLeft, y: yMid - pitch * 0.42, w: it.box.x - 2 - cellLeft, h: pitch * 0.84 }, pageText.width, pageText.height);
+  }
   const rows = unionAll(items.map((i) => i.box)) ?? hb;
   const symbolMargin = Math.max(hb.h * 5, (rows.h / items.length) * 3);
   const box: Box = clampToPage(

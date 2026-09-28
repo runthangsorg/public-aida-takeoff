@@ -40,6 +40,30 @@ export interface LegendItem {
   /** Where the legend row sits on the page it was read from. */
   box: Box;
   page: number;
+  /** The cell that holds the drawn symbol for this row. */
+  symbolBox?: Box;
+  /** Vector signature of the symbol, built from the paths in `symbolBox`. */
+  signature?: SymbolSignature;
+}
+
+/** Portable description of a legend glyph's geometry (see vector/symbols.ts). */
+export interface SymbolSignature {
+  elements: {
+    kind: 'dot' | 'line' | 'open' | 'closed' | 'curve';
+    dx: number;
+    dy: number;
+    size: number;
+    aspect: number;
+    fill: boolean;
+    stroke: boolean;
+    angular: number[];
+    radial: number[];
+    round: number;
+    weight: number;
+  }[];
+  anchor: number;
+  extent: number;
+  anchorSize: number;
 }
 
 export interface Legend {
@@ -51,7 +75,8 @@ export interface Legend {
   source: 'vector' | 'vision' | 'file';
 }
 
-export type DetectionSource = 'vector' | 'vision';
+/** vector: a type tag read from the text; symbol: a vector path match against the legend glyph; vision: the model. */
+export type DetectionSource = 'vector' | 'symbol' | 'vision';
 
 export interface Detection {
   page: number;
@@ -104,6 +129,14 @@ export interface PageResult {
   detections: Detection[];
 }
 
+export interface SymbolMatchSummary {
+  itemId: string;
+  referenceElements: number;
+  anchorCandidates: number;
+  matches: number;
+  meanScore: number;
+}
+
 export interface TakeoffResult {
   schemaVersion: 1;
   file: string;
@@ -111,6 +144,8 @@ export interface TakeoffResult {
   legend: Legend | null;
   pages: PageResult[];
   items: ItemCount[];
+  /** Per-item outcome of vector symbol matching, when it ran. */
+  symbols?: SymbolMatchSummary[];
   usage: UsageRecord;
   wallTimeMs: number;
   warnings: string[];

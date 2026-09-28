@@ -99,7 +99,8 @@ export async function writeBill(results: readonly TakeoffResult[], path: string,
     const firstRow = bill.rowCount + 1;
     sectionItems.forEach((it, i) => {
       const desc = it.tag ? `${it.description} (type ${it.tag})` : it.description;
-      const basis = `${it.source === 'vector' ? 'tagged on drawing' : it.source === 'vision' ? 'symbol recognised' : it.source}${it.needsReview > 0 ? `; check ${it.needsReview}` : ''}`;
+      const basisText: Record<string, string> = { vector: 'tagged on drawing', symbol: 'symbol matched on drawing geometry', vision: 'symbol recognised by the model', mixed: 'mixed methods', none: 'not found' };
+      const basis = `${basisText[it.source] ?? it.source}${it.needsReview > 0 ? `; check ${it.needsReview}` : ''}`;
       const row = bill.addRow([`${section.code}/${i + 1}`, desc, 'nr', it.count, null, null, basis]);
       const n = row.number;
       row.getCell('amount').value = { formula: `IF(ISNUMBER(E${n}),D${n}*E${n},"")` };

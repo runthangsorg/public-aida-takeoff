@@ -10,7 +10,7 @@ import { dirname, resolve } from 'node:path';
 import { Command } from 'commander';
 import { runBench } from './bench/bench.ts';
 import { formatReport } from './bench/scoring.ts';
-import { countDrawing, type LegendMode } from './engine.ts';
+import { countDrawing, type LegendMode, type VisionFallback } from './engine.ts';
 import { VERSION } from './index.ts';
 import { writeBill } from './output/excel.ts';
 import { writeOverlay } from './output/overlay.ts';
@@ -34,6 +34,8 @@ program
   .option('--no-vision', 'skip the vision pass (vector text only)')
   .option('--cross-check', 'run vision for tagged items too and report disagreements')
   .option('--no-verify', 'skip the second-look verification of low-confidence detections')
+  .option('--no-symbols', 'skip vector symbol matching')
+  .option('--vision-fallback <mode>', 'never | auto | always (when the model runs for items with no vector count)', 'auto')
   .option('--dpi <n>', 'render resolution for the vision pass', '200')
   .option('--tile <px>', 'tile size in pixels', '1024')
   .option('--model <name>', 'Vertex AI model id (default gemini-3.8-flash or $AIDA_MODEL)')
@@ -46,7 +48,14 @@ program
           console.error(`[aida] ${m}`);
         };
     const vision = o.vision ? await loadVision(o, log) : undefined;
-    const result = await countDrawing(resolve(pdf), { legend: parseLegend(o.legend), vision, crossCheck: o.crossCheck === true, log });
+    const result = await countDrawing(resolve(pdf), {
+      legend: parseLegend(o.legend),
+      vision,
+      visionFallback: parseFallback(o.visionFallback),
+      symbols: o.symbols,
+      crossCheck: o.crossCheck === true,
+      log,
+    });
     await mkdir(dirname(resolve(o.out)), { recursive: true });
     await writeFile(resolve(o.out), JSON.stringify(result, null, 2) + '\n');
     if (o.xlsx) {
@@ -66,6 +75,11 @@ program
     console.error(`[aida] wrote ${o.out}; ${result.usage.calls} model call(s), $${result.usage.costUsd.toFixed(4)}, ${result.wallTimeMs} ms`);
   });
 
+function parseFallback(value: string): VisionFallback {
+  if (value === 'never' || value === 'auto' || value === 'always') return value;
+  throw new Error(`--vision-fallback must be never, auto or always (got ${value})`);
+}
+
 interface CountFlags {
   legend: string;
   out: string;
@@ -73,6 +87,8 @@ interface CountFlags {
   overlay?: string;
   vision: boolean;
   verify: boolean;
+  symbols: boolean;
+  visionFallback: string;
   crossCheck?: boolean;
   dpi: string;
   tile: string;
@@ -100,8 +116,10 @@ program
   .option('--json <file>', 'write the full report as JSON')
   .option('--out-dir <dir>', 'write each drawing\'s result.json under <dir>/<set>/')
   .option('--only <sets>', 'comma-separated set names to run')
-  .option('--no-vision', 'vector text only')
+  .option('--no-vision', 'vector text and symbols only')
   .option('--no-verify', 'skip the second-look verification')
+  .option('--no-symbols', 'skip vector symbol matching')
+  .option('--vision-fallback <mode>', 'never | auto | always', 'auto')
   .option('--dpi <n>', 'render resolution for the vision pass', '200')
   .option('--tile <px>', 'tile size in pixels', '1024')
   .option('--model <name>', 'Vertex AI model id')
@@ -117,6 +135,7 @@ program
       makeVision: o.vision ? () => loadVision(o, log) : undefined,
       only: o.only ? o.only.split(',').map((s) => s.trim()) : undefined,
       outDir: o.outDir ? resolve(o.outDir) : undefined,
+      countOptions: { visionFallback: parseFallback(o.visionFallback), symbols: o.symbols },
       log,
     });
     if (o.json) {
@@ -133,6 +152,8 @@ interface BenchFlags {
   only?: string;
   vision: boolean;
   verify: boolean;
+  symbols: boolean;
+  visionFallback: string;
   dpi: string;
   tile: string;
   model?: string;
