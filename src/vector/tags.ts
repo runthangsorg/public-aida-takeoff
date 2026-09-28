@@ -7,8 +7,9 @@ import { centerInside, roundBox } from '../geometry.ts';
 import { normalizeText } from '../pdf/text.ts';
 import type { Box, Detection, PageText } from '../types.ts';
 
-const MULT_BEFORE = /^(\d{1,3})\s*(?:NO\.?|NR\.?|N°|X|×|OFF)?\s*([A-Z]{1,4}-?\d{0,3}[A-Z]?)$/;
-const MULT_AFTER = /^([A-Z]{1,4}-?\d{0,3}[A-Z]?)\s*[X×]\s*(\d{1,3})$/;
+// Inputs are whitespace-normalised, so a single optional space is enough and keeps the patterns linear.
+const MULT_BEFORE = /^(\d{1,3}) ?(?:NO\.?|NR\.?|N°|X|×|OFF)? ?([A-Z]{1,4}-?\d{0,3}[A-Z]?)$/;
+const MULT_AFTER = /^([A-Z]{1,4}-?\d{0,3}[A-Z]?) ?[X×] ?(\d{1,3})$/;
 
 export interface TagMatch {
   tag: string;

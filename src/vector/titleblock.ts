@@ -9,8 +9,9 @@ import { normalizeText } from '../pdf/text.ts';
 import type { Box, PageText, TextSpan, TitleBlock } from '../types.ts';
 
 const SCALE = /\b1\s*[:/]\s*(\d{1,4})\b/;
-const DRAWING_NO = /^(?:DRAWING|DRG|DWG|SHEET)\.?\s*(?:NO|NUMBER|N°|#)\.?\s*[:.-]?\s*(.*)$/;
-const TITLE = /^(?:DRAWING\s+)?TITLE\s*[:.-]?\s*(.*)$/;
+// Inputs are whitespace-normalised, so single optional spaces keep these linear.
+const DRAWING_NO = /^(?:DRAWING|DRG|DWG|SHEET)\.? ?(?:NO|NUMBER|N°|#)\.? ?[:.-]? ?(.*)$/;
+const TITLE = /^(?:DRAWING )?TITLE ?[:.-]? ?(.*)$/;
 const LABELS = /^(?:PROJECT|CLIENT|DRAWING TITLE|TITLE|DRAWING NO|DWG NO|DRG NO|SCALE|REV|REVISION|STATUS|DATE|DRAWN|CHECKED|APPROVED|SHEET)\b/;
 
 /** The nearest span to the right of `label` on the same line, or directly below it. */
