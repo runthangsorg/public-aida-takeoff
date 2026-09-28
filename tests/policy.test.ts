@@ -48,10 +48,18 @@ const keyShaped = new RegExp(
 interface Rule {
   name: string;
   pattern: RegExp;
+  /** Files the rule does not apply to, each with the reason. */
+  exempt?: Record<string, string>;
 }
 
 const textRules: Rule[] = [
-  { name: 'email address', pattern: emailPattern },
+  {
+    name: 'email address',
+    pattern: emailPattern,
+    exempt: {
+      'package-lock.json': 'machine-written registry metadata; npm copies maintainer contact addresses into deprecation notices',
+    },
+  },
   { name: 'owner surname', pattern: ownerSurname },
   { name: 'employer name', pattern: employer },
   { name: 'GCP project id', pattern: gcpProjectId },
@@ -102,6 +110,7 @@ describe('public repository policy', () => {
     it(`contains no ${rule.name}`, () => {
       const hits: string[] = [];
       for (const file of files) {
+        if (rule.exempt?.[file] !== undefined) continue;
         const buf = readFileSync(`${repoRoot}${file}`);
         if (isBinary(buf)) continue;
         const text = buf.toString('utf8');

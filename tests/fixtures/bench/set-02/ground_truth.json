@@ -1,0 +1,26 @@
+{
+  "set": "set-02",
+  "description": "Untagged small power and sprinkler layout, A3, one sheet; symbols identified by shape only",
+  "source": "scripts/make-fixtures.ts, seed 2 (synthetic; counts are exact by construction)",
+  "units": "nr",
+  "items": {
+    "SD": 63,
+    "SP": 59,
+    "SSO": 67,
+    "SW": 24
+  },
+  "descriptions": {
+    "SD": "Optical smoke detector, ceiling mounted, addressable",
+    "SP": "Sprinkler head, pendent, quick response",
+    "SSO": "13 A twin switched socket outlet, flush",
+    "SW": "Light switch, 1 gang 2 way, 10 A"
+  },
+  "perSheet": {
+    "M-201": {
+      "SSO": 67,
+      "SW": 24,
+      "SD": 63,
+      "SP": 59
+    }
+  }
+}

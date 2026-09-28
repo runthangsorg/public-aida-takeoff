@@ -1,0 +1,56 @@
+{
+  "set": "set-03",
+  "description": "Mixed: luminaires tagged, fire devices untagged; legend only on the first sheet",
+  "source": "scripts/make-fixtures.ts, seed 3 (synthetic; counts are exact by construction)",
+  "units": "nr",
+  "items": {
+    "A1": 152,
+    "A2": 123,
+    "B1": 74,
+    "EM": 58,
+    "EX": 29,
+    "SD": 92,
+    "HD": 31,
+    "SP": 105,
+    "SSO": 78,
+    "SW": 47
+  },
+  "descriptions": {
+    "A1": "LED downlight, 150 mm, recessed",
+    "A2": "LED panel, 600 x 600 mm, recessed",
+    "B1": "LED linear luminaire, 1200 mm, surface mounted",
+    "EM": "Self-contained emergency luminaire, 3 hour",
+    "EX": "Illuminated exit sign, maintained",
+    "SD": "Optical smoke detector, ceiling mounted, addressable",
+    "HD": "Rate-of-rise heat detector, ceiling mounted, addressable",
+    "SP": "Sprinkler head, pendent, quick response",
+    "SSO": "13 A twin switched socket outlet, flush",
+    "SW": "Light switch, 1 gang 2 way, 10 A"
+  },
+  "perSheet": {
+    "E-401": {
+      "A2": 66,
+      "EM": 23,
+      "SP": 68,
+      "A1": 79,
+      "EX": 15,
+      "B1": 37,
+      "SD": 50,
+      "SSO": 45,
+      "HD": 18,
+      "SW": 29
+    },
+    "E-402": {
+      "EM": 35,
+      "SSO": 33,
+      "B1": 37,
+      "SP": 37,
+      "A1": 73,
+      "A2": 57,
+      "SW": 18,
+      "SD": 42,
+      "HD": 13,
+      "EX": 14
+    }
+  }
+}

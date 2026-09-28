@@ -25,5 +25,15 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.70.1",
     "vitest": "^5.0.2"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^1.0.9",
+    "commander": "^15.0.0",
+    "exceljs": "^4.4.0",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.3.289"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
   }
 }
