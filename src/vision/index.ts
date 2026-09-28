@@ -133,8 +133,8 @@ export function createVisionPass(opts: VisionOptions = {}): Promise<VisionPass> 
         const tiles = makeTiles(image, { tile: settings.tile, overlap: settings.overlap });
         const busy = tiles.filter((t) => inkFraction(image, t) > 0.0005);
         log(`page ${p.page}: ${image.width}x${image.height}px, ${tiles.length} tile(s), ${busy.length} with ink`);
-        const perTile = await mapLimit(busy, settings.concurrency, (tile) =>
-          detectTile({ client, items, legendPng, tile, page: p.page, scale, mediaResolution: settings.mediaResolution }),
+        const perTile = await mapLimit(busy, settings.concurrency, (tile, tileIndex) =>
+          detectTile({ client, items, legendPng, tile, tileIndex, page: p.page, scale, mediaResolution: settings.mediaResolution }),
         );
         const raw = perTile.flat();
         const inside = raw.filter((d) => !p.exclude.some((b: Box) => centerInside(b, d.box)));

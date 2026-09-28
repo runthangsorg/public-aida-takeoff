@@ -3,8 +3,8 @@
  * tile and returns boxes with item ids. Everything numeric (coordinates,
  * counting, de-duplication) is done here in code.
  */
-import type { Box, Detection, LegendItem } from '../types.ts';
-import type { Tile } from './tiles.ts';
+import type { Box, LegendItem } from '../types.ts';
+import type { Tile, TileDetection } from './tiles.ts';
 import type { JsonSchema, Part, VertexClient } from './vertex.ts';
 
 /** Compact keys: output tokens are the main cost, and a page can hold hundreds of detections. */
@@ -72,6 +72,8 @@ export interface DetectTileArgs {
   items: LegendItem[];
   legendPng: Buffer | null;
   tile: Tile;
+  /** Index of the tile on its page, for de-duplication. */
+  tileIndex: number;
   page: number;
   /** Pixels per point of the page image. */
   scale: number;
@@ -90,7 +92,14 @@ export function tileBoxToPage(box: number[], tile: Tile, scale: number): Box | n
   return { x: x1 / scale, y: y1 / scale, w: (x2 - x1) / scale, h: (y2 - y1) / scale };
 }
 
-export async function detectTile(args: DetectTileArgs): Promise<Detection[]> {
+/** Distance in points from the box centre to the nearest edge of the tile. */
+export function edgeMargin(box: Box, tile: Tile, scale: number): number {
+  const cx = (box.x + box.w / 2) * scale;
+  const cy = (box.y + box.h / 2) * scale;
+  return Math.min(cx - tile.x, tile.x + tile.w - cx, cy - tile.y, tile.y + tile.h - cy) / scale;
+}
+
+export async function detectTile(args: DetectTileArgs): Promise<TileDetection[]> {
   const ids = args.items.map((i) => i.id);
   const parts: Part[] = [{ text: detectPrompt(args.items, args.legendPng !== null) }];
   if (args.legendPng) {
@@ -102,13 +111,23 @@ export async function detectTile(args: DetectTileArgs): Promise<Detection[]> {
     schema: detectionSchema(ids),
     ...(args.mediaResolution ? { mediaResolution: args.mediaResolution } : {}),
   });
-  const out: Detection[] = [];
+  const out: TileDetection[] = [];
   for (const raw of res.json.d) {
     if (!ids.includes(raw.t)) continue;
     const box = tileBoxToPage(raw.b, args.tile, args.scale);
     if (!box) continue;
     const confidence = Math.max(0, Math.min(1, Number.isFinite(raw.c) ? raw.c : 0));
-    out.push({ page: args.page, itemId: raw.t, box, confidence, source: 'vision', multiplier: 1, needsReview: false });
+    out.push({
+      page: args.page,
+      itemId: raw.t,
+      box,
+      confidence,
+      source: 'vision',
+      multiplier: 1,
+      needsReview: false,
+      tile: args.tileIndex,
+      edgeMargin: edgeMargin(box, args.tile, args.scale),
+    });
   }
   return out;
 }

@@ -92,42 +92,79 @@ export function makeTiles(img: PageImage, opts: TilingOptions): Tile[] {
   return tiles;
 }
 
+/** A detection with the tile it came from and how far its centre sits from that tile's edge (in points). */
+export interface TileDetection extends Detection {
+  tile: number;
+  edgeMargin: number;
+}
+
 export interface DedupOptions {
-  /** Same-item detections overlapping at least this much are one symbol. */
+  /** Detections from different tiles overlapping at least this much are one symbol. */
   iou: number;
-  /** Same-item detections whose centres are closer than this fraction of the mean box size are one symbol. */
+  /** Detections from different tiles whose centres are closer than this fraction of the mean box size are one symbol. */
   centerFraction: number;
+  /** Detections from the same tile only merge when their boxes nearly coincide. */
+  sameTileIou: number;
 }
 
 /**
- * Removes duplicate detections. Highest confidence wins. Different items at
- * the same place are kept as one detection flagged for review.
+ * Cross-tile centre tolerance is generous (1.5 x symbol size) because the
+ * model boxes asymmetric glyphs differently from each tile; the nearest kept
+ * sighting is chosen, so two real neighbours each still claim their own.
  */
-export function dedupe(detections: readonly Detection[], opts: DedupOptions = { iou: 0.3, centerFraction: 0.6 }): Detection[] {
-  const sorted = [...detections].sort((a, b) => b.confidence - a.confidence);
-  const kept: Detection[] = [];
+export const defaultDedup: DedupOptions = { iou: 0.3, centerFraction: 1.5, sameTileIou: 0.6 };
+
+/**
+ * Removes duplicate detections. The overlap between tiles makes the model
+ * see symbols near a tile edge twice, so detections from different tiles
+ * at the same place merge; within one tile, neighbouring symbols are real
+ * and only near-identical boxes merge. The detection farthest from its
+ * tile edge wins (it saw the whole symbol); confidence breaks ties.
+ * Different items at one place are kept as one detection flagged for review.
+ */
+export function dedupe(detections: readonly TileDetection[], opts: DedupOptions = defaultDedup): Detection[] {
+  const sorted = [...detections].sort((a, b) => b.confidence - a.confidence || b.edgeMargin - a.edgeMargin);
+  const kept: TileDetection[] = [];
   for (const d of sorted) {
     const c = center(d.box);
     const size = (d.box.w + d.box.h) / 2;
-    let duplicateOf: Detection | null = null;
+    let duplicateOf: TileDetection | null = null;
+    let best = Infinity;
     for (const k of kept) {
       if (k.page !== d.page) continue;
+      const overlap = iou(k.box, d.box);
       const kc = center(k.box);
-      const ksize = (k.box.w + k.box.h) / 2;
       const dist = Math.hypot(kc.x - c.x, kc.y - c.y);
-      if (iou(k.box, d.box) >= opts.iou || dist < opts.centerFraction * ((size + ksize) / 2)) {
+      if (k.tile === d.tile) {
+        if (overlap >= opts.sameTileIou && dist < best) {
+          duplicateOf = k;
+          best = dist;
+        }
+        continue;
+      }
+      const ksize = (k.box.w + k.box.h) / 2;
+      if ((overlap >= opts.iou || dist < opts.centerFraction * ((size + ksize) / 2)) && dist < best) {
         duplicateOf = k;
-        break;
+        best = dist;
       }
     }
     if (!duplicateOf) {
       kept.push({ ...d });
       continue;
     }
+    // Prefer the sighting that saw more of the symbol when confidences are close.
+    if (duplicateOf.itemId === d.itemId && d.edgeMargin > duplicateOf.edgeMargin && d.confidence >= duplicateOf.confidence - 0.05) {
+      duplicateOf.box = d.box;
+      duplicateOf.edgeMargin = d.edgeMargin;
+    }
     if (duplicateOf.itemId !== d.itemId && !duplicateOf.needsReview) {
       duplicateOf.needsReview = true;
       duplicateOf.reviewReason = `also seen as ${d.itemId} (${d.confidence.toFixed(2)})`;
     }
   }
-  return kept;
+  return kept.map((k) => {
+    const d: Detection = { page: k.page, itemId: k.itemId, box: k.box, confidence: k.confidence, source: k.source, multiplier: k.multiplier, needsReview: k.needsReview };
+    if (k.reviewReason !== undefined) d.reviewReason = k.reviewReason;
+    return d;
+  });
 }

@@ -3,7 +3,7 @@
  * (fast, faithful) and falls back to pdf.js drawing onto a @napi-rs/canvas.
  */
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, stat } from 'node:fs/promises';
+import { mkdir, open, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { openPdf } from './text.ts';
@@ -42,41 +42,41 @@ export async function chooseRenderer(preferred?: Renderer): Promise<Renderer> {
   return 'pdfjs';
 }
 
-function pngSize(buf: Buffer): { width: number; height: number } {
-  // PNG IHDR: width and height are the first two big-endian u32 after the 16-byte header.
-  return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+/** Reads the PNG header of an existing file: width and height are the two big-endian u32 after the 16-byte signature+chunk header. */
+async function readPngSize(path: string): Promise<{ width: number; height: number } | null> {
+  let fh: Awaited<ReturnType<typeof open>>;
+  try {
+    fh = await open(path, 'r');
+  } catch {
+    return null;
+  }
+  try {
+    const head = Buffer.alloc(24);
+    const { bytesRead } = await fh.read(head, 0, 24, 0);
+    if (bytesRead < 24 || head.readUInt32BE(0) !== 0x89504e47) return null;
+    return { width: head.readUInt32BE(16), height: head.readUInt32BE(20) };
+  } finally {
+    await fh.close();
+  }
 }
 
 async function renderWithPdftoppm(pdfPath: string, page: number, dpi: number, outDir: string): Promise<RenderedPage> {
   const prefix = join(outDir, `page-${page}-${dpi}`);
   const path = `${prefix}.png`;
-  try {
-    await stat(path);
-  } catch {
+  let size = await readPngSize(path);
+  if (!size) {
     await execFileAsync('pdftoppm', ['-r', String(dpi), '-f', String(page), '-l', String(page), '-png', '-singlefile', pdfPath, prefix], { maxBuffer: 1 << 20 });
+    size = await readPngSize(path);
+    if (!size) throw new Error(`pdftoppm produced no image for page ${page}`);
   }
-  const head = Buffer.alloc(24);
-  const fh = await import('node:fs/promises').then((m) => m.open(path, 'r'));
-  try {
-    await fh.read(head, 0, 24, 0);
-  } finally {
-    await fh.close();
-  }
-  const { width, height } = pngSize(head);
-  return { page, path, width, height, scale: dpi / 72, dpi };
+  return { page, path, ...size, scale: dpi / 72, dpi };
 }
 
 async function renderWithPdfjs(pdfPath: string, page: number, dpi: number, outDir: string): Promise<RenderedPage> {
   const { createCanvas } = await import('@napi-rs/canvas');
   const path = join(outDir, `page-${page}-${dpi}.png`);
-  try {
-    await stat(path);
-    const buf = await readFile(path);
-    const { width, height } = pngSize(buf);
-    return { page, path, width, height, scale: dpi / 72, dpi };
-  } catch {
-    // render below
-  }
+  const existing = await readPngSize(path);
+  if (existing) return { page, path, ...existing, scale: dpi / 72, dpi };
   const { doc, close } = await openPdf(pdfPath);
   try {
     const p = await doc.getPage(page);
@@ -89,8 +89,7 @@ async function renderWithPdfjs(pdfPath: string, page: number, dpi: number, outDi
     ctx.fillRect(0, 0, width, height);
     // pdf.js expects a browser HTMLCanvasElement; @napi-rs/canvas is API compatible.
     await p.render({ canvas: canvas as unknown as HTMLCanvasElement, viewport }).promise;
-    const png = canvas.toBuffer('image/png');
-    await import('node:fs/promises').then((m) => m.writeFile(path, png));
+    await writeFile(path, canvas.toBuffer('image/png'));
     p.cleanup();
     return { page, path, width, height, scale: dpi / 72, dpi };
   } finally {

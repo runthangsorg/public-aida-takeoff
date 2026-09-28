@@ -10,11 +10,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { countDrawing } from '../src/engine.ts';
 import { renderPage } from '../src/pdf/render.ts';
 import { extractText } from '../src/pdf/text.ts';
-import type { Detection } from '../src/types.ts';
 import { findLegend } from '../src/vector/legend.ts';
 import { detectionSchema, tileBoxToPage } from '../src/vision/detect.ts';
 import { createVisionPass, mapLimit } from '../src/vision/index.ts';
-import { dedupe, inkFraction, loadPageImage, makeTiles, tileOrigins, type Tile } from '../src/vision/tiles.ts';
+import { dedupe, inkFraction, loadPageImage, makeTiles, tileOrigins, type Tile, type TileDetection } from '../src/vision/tiles.ts';
 import { PRICE_PER_MILLION, SpendCapError, VertexClient, type JsonSchema } from '../src/vision/vertex.ts';
 
 const bench = new URL('./fixtures/bench/', import.meta.url).pathname;
@@ -55,7 +54,7 @@ describe('tiling', () => {
 });
 
 describe('de-duplication', () => {
-  const d = (itemId: string, x: number, y: number, confidence = 1, page = 1): Detection => ({
+  const d = (itemId: string, x: number, y: number, confidence = 1, tile = 0, edgeMargin = 100, page = 1): TileDetection => ({
     page,
     itemId,
     box: { x, y, w: 10, h: 10 },
@@ -63,20 +62,35 @@ describe('de-duplication', () => {
     source: 'vision',
     multiplier: 1,
     needsReview: false,
+    tile,
+    edgeMargin,
   });
 
-  it('merges overlapping same-item detections and keeps the most confident', () => {
-    const out = dedupe([d('SD', 100, 100, 0.8), d('SD', 102, 101, 1), d('SD', 200, 200)]);
+  it('merges the same symbol seen from two tiles and keeps the fuller sighting', () => {
+    const out = dedupe([d('SD', 100, 100, 1, 0, 3), d('SD', 108, 101, 1, 1, 40), d('SD', 200, 200)]);
     expect(out).toHaveLength(2);
-    expect(out[0]?.confidence).toBe(1);
+    const merged = out.find((o) => o.box.x < 150);
+    expect(merged?.box.x).toBe(108);
+    expect(merged).not.toHaveProperty('tile');
+  });
+
+  it('keeps neighbouring symbols from the same tile apart unless the boxes coincide', () => {
+    expect(dedupe([d('SSO', 100, 100), d('SSO', 108, 100)])).toHaveLength(2);
+    expect(dedupe([d('SSO', 100, 100), d('SSO', 101, 100)])).toHaveLength(1);
+  });
+
+  it('matches each cross-tile sighting to its nearest neighbour, so two adjacent symbols stay two', () => {
+    // Tile 0 sees S1 and S2 fully; tile 1 sees both again, slightly shifted.
+    const out = dedupe([d('SSO', 100, 100, 1, 0, 50), d('SSO', 114, 100, 1, 0, 50), d('SSO', 102, 101, 1, 1, 50), d('SSO', 116, 101, 1, 1, 50)]);
+    expect(out).toHaveLength(2);
   });
 
   it('keeps detections on different pages apart', () => {
-    expect(dedupe([d('SD', 100, 100, 1, 1), d('SD', 100, 100, 1, 2)])).toHaveLength(2);
+    expect(dedupe([d('SD', 100, 100, 1, 0, 100, 1), d('SD', 100, 100, 1, 1, 100, 2)])).toHaveLength(2);
   });
 
-  it('flags one place seen as two different items', () => {
-    const out = dedupe([d('SD', 100, 100, 0.9), d('HD', 101, 100, 0.7)]);
+  it('flags one place seen as two different items by two tiles', () => {
+    const out = dedupe([d('SD', 100, 100, 0.9, 0), d('HD', 101, 100, 0.7, 1)]);
     expect(out).toHaveLength(1);
     expect(out[0]?.itemId).toBe('SD');
     expect(out[0]?.needsReview).toBe(true);
@@ -161,10 +175,10 @@ describe('Vertex client', () => {
   });
 
   it('never leaks the project id in errors', async () => {
-    const { fetch } = fakeFetch(() => ({ error: { message: 'bad request for projects/secret-project-123/locations/global' } }), 400);
-    const client = new VertexClient({ fetchImpl: fetch, project: 'secret-project-123', tokenProvider: () => Promise.resolve('t'), cacheDir: null });
+    const { fetch } = fakeFetch(() => ({ error: { message: 'bad request for projects/hidden-tenant-xyz/locations/global' } }), 400);
+    const client = new VertexClient({ fetchImpl: fetch, project: 'hidden-tenant-xyz', tokenProvider: () => Promise.resolve('t'), cacheDir: null });
     await expect(client.generate({ parts: [{ text: 'a' }], schema })).rejects.toThrow(/projects\/<redacted>/);
-    await expect(client.generate({ parts: [{ text: 'a' }], schema })).rejects.not.toThrow(/secret-project/);
+    await expect(client.generate({ parts: [{ text: 'a' }], schema })).rejects.not.toThrow(/hidden-tenant/);
   });
 });
 
