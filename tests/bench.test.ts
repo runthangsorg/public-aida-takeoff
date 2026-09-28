@@ -105,15 +105,15 @@ describe('bench runner on the synthetic fixtures (vector only)', () => {
     expect(sets.every((s) => s.drawings.length === 1)).toBe(true);
   });
 
-  it('passes the fully tagged set and fails the untagged ones without vision', async () => {
+  it('passes every synthetic set on vector text and vector symbols alone', async () => {
     const report = await runBench(bench, { outDir: tmp });
     expect(report.vision).toBe(false);
     const byName = Object.fromEntries(report.sets.map((s) => [s.set, s]));
     expect(byName['set-01']?.strictPass).toBe(true);
     expect(byName['set-01']?.weightedError).toBe(0);
-    expect(byName['set-02']?.strictPass).toBe(false);
-    expect(byName['set-03']?.strictPass).toBe(false);
-    expect(report.summary.headline).toMatch(/^1 of 3 sets within ±5%/);
+    expect(byName['set-02']?.strictPass).toBe(true);
+    expect(byName['set-03']?.strictPass).toBe(true);
+    expect(report.summary.headline).toMatch(/^3 of 3 sets within ±5%/);
     expect(report.summary.totalCostUsd).toBe(0);
     // Per-drawing results were written for review.
     const written = JSON.parse(readFileSync(join(tmp, 'set-01', 'E-301-lighting-fire-layout.pdf.result.json'), 'utf8')) as TakeoffResult;

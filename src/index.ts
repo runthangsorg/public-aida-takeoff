@@ -5,6 +5,8 @@ export type { CountOptions, LegendMode, VisionPass } from './engine.ts';
 export { extractText, normalizeText } from './pdf/text.ts';
 export { findLegend, findLegends, isTagLike } from './vector/legend.ts';
 export { countTags, parseTagSpan } from './vector/tags.ts';
+export { extractPaths } from './vector/paths.ts';
+export { buildSignature, glyphPaths, attachSignatures, matchSignature, matchSymbols, mergeHatchBands, SpatialIndex, elementOf } from './vector/symbols.ts';
 export { readTitleBlock, findNotesBox } from './vector/titleblock.ts';
 export { renderPage } from './pdf/render.ts';
 export { createVisionPass, defaultSettings as defaultVisionSettings } from './vision/index.ts';

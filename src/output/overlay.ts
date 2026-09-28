@@ -1,7 +1,8 @@
 /**
  * Marked-up PDF: every detection drawn on the original drawing as a box
  * with its item id, coloured by how it was found (blue: tag read from the
- * vector text; green: symbol recognised; red: needs a human look).
+ * vector text; purple: symbol matched on vector geometry; green: symbol
+ * recognised by the model; red: needs a human look).
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
@@ -10,6 +11,7 @@ import type { Box, Detection, TakeoffResult } from '../types.ts';
 
 const COLOURS = {
   vector: rgb(0.1, 0.35, 0.9),
+  symbol: rgb(0.55, 0.2, 0.8),
   vision: rgb(0.05, 0.6, 0.25),
   review: rgb(0.85, 0.1, 0.1),
 };
@@ -57,7 +59,7 @@ export async function writeOverlay(result: TakeoffResult, pdfPath: string, outPa
     boxes.forEach((b, i) => {
       const d = dets[i];
       if (!d) return;
-      const colour = d.needsReview ? COLOURS.review : d.source === 'vector' ? COLOURS.vector : COLOURS.vision;
+      const colour = d.needsReview ? COLOURS.review : d.source === 'vector' ? COLOURS.vector : d.source === 'symbol' ? COLOURS.symbol : COLOURS.vision;
       const pad = stroke * 2;
       page.drawRectangle({ x: b.x - pad, y: b.y - pad, width: b.w + 2 * pad, height: b.h + 2 * pad, borderColor: colour, borderWidth: stroke, opacity: 0, borderOpacity: 0.9 });
       const label = d.multiplier > 1 ? `${d.itemId} x${d.multiplier}` : d.itemId;
@@ -66,7 +68,8 @@ export async function writeOverlay(result: TakeoffResult, pdfPath: string, outPa
     // Legend of colours in the corner.
     const legend = [
       ['tag read from drawing text', COLOURS.vector],
-      ['symbol recognised', COLOURS.vision],
+      ['symbol matched on vector geometry', COLOURS.symbol],
+      ['symbol recognised by the model', COLOURS.vision],
       ['needs a check', COLOURS.review],
     ] as const;
     legend.forEach(([text, colour], i) => {

@@ -8,6 +8,8 @@ import { countDrawing, mergeLegends, structuralBoxes, type CountOptions, type Vi
 import { extractText } from '../pdf/text.ts';
 import type { Legend, TakeoffResult } from '../types.ts';
 import { findLegends } from '../vector/legend.ts';
+import { extractPaths } from '../vector/paths.ts';
+import { attachSignatures } from '../vector/symbols.ts';
 import { isGroundTruth, scoreSet, summarise, type BenchReport, type SetScore } from './scoring.ts';
 
 export interface BenchOptions {
@@ -145,12 +147,22 @@ async function sharedLegend(drawings: readonly string[]): Promise<SharedLegend |
   const perFile = new Map<string, boolean>();
   for (const pdf of drawings) {
     let found = false;
+    const fileLegends: Legend[] = [];
     for (const page of await extractText(pdf)) {
       const ls = findLegends(page, structuralBoxes(page));
       if (ls.length > 0) {
-        legends.push(...ls);
+        fileLegends.push(...ls);
         found = true;
       }
+    }
+    if (fileLegends.length > 0) {
+      // Glyph signatures travel with the shared legend so other files can match symbols against them.
+      const paths = await extractPaths(pdf, [...new Set(fileLegends.map((l) => l.page))]);
+      for (const l of fileLegends) {
+        const pp = paths.find((x) => x.page === l.page);
+        if (pp) attachSignatures(l.items, pp.paths);
+      }
+      legends.push(...fileLegends);
     }
     perFile.set(pdf, found);
     if (found) files.push(result_name(pdf));
